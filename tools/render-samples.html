@@ -76,6 +76,43 @@
     position: absolute; left: -4%; top: -12%; width: 108%; height: 124%;
     opacity: 0.55;
   }
+
+  /* ---- strip1: the synthetic medicine strip (second image modality asset) ---- */
+  body.stripmode { background: linear-gradient(160deg, #e8ebee, #dde2e7 55%, #d2d8de); }
+  .stripstage { position: absolute; inset: 0; display: grid; place-items: center; }
+  .strip {
+    position: relative; width: 88%; max-width: 780px; height: 252px;
+    display: flex; align-items: center; gap: 22px; padding: 0 30px;
+    border-radius: 18px;
+    background:
+      linear-gradient(115deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 20%),
+      linear-gradient(295deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 24%),
+      repeating-linear-gradient(90deg, #eef1f4 0 26px, #e4e9ee 26px 52px),
+      #e9edf1;
+    border: 1px solid #c2cbd3;
+    box-shadow: 0 20px 44px rgba(31, 42, 55, 0.20), inset 0 1px 0 #ffffff;
+    transform: rotate(-1.2deg);
+    overflow: hidden;
+  }
+  .strip::before, .strip::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 11px;
+    background: repeating-linear-gradient(0deg, #c6cfd7 0 6px, #eef1f4 6px 12px);
+  }
+  .strip::before { left: 0; border-radius: 18px 0 0 18px; }
+  .strip::after { right: 0; border-radius: 0 18px 18px 0; }
+  .blisters { display: flex; gap: 12px; }
+  .blister {
+    width: 50px; height: 50px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #ffffff 0%, #dfe5ea 42%, #b9c3cd 72%, #9faab5 100%);
+    box-shadow: 0 3px 7px rgba(31, 42, 55, 0.22), inset 0 -2px 4px rgba(31, 42, 55, 0.16), inset 0 2px 3px #ffffff;
+  }
+  .striptext2 { font-family: var(--print); color: #16324a; min-width: 0; }
+  .striptext2 .drug { font-size: 25px; font-weight: 800; letter-spacing: 1.2px; line-height: 1.1; white-space: nowrap; }
+  .striptext2 .formline { font-size: 12px; font-weight: 700; letter-spacing: 2.4px; color: #33546e; margin-top: 1px; }
+  .striptext2 .dose { font-size: 22px; font-weight: 800; margin-top: 3px; }
+  .striptext2 .sub { font-size: 11px; letter-spacing: 0.6px; color: #3d5a72; margin-top: 7px; }
+  .striptext2 .tiny { font-size: 8.6px; color: #5c7286; margin-top: 6px; line-height: 1.55; letter-spacing: 0.3px; }
+  .striptext2 .tiny span { display: block; }
 </style>
 </head>
 <body>
@@ -111,8 +148,38 @@
     }
   };
 
+  // Synthetic medicine strip (the patient's existing blood-pressure medicine).
+  // Rendered as the photo asset public/samples/strip1.png and hidden behind
+  // the "Use the demo strip" button in the app.
+  const strips = {
+    strip1: {
+      drug: "AMLODIPINE",
+      formline: "TABLETS IP",
+      dose: "5 mg",
+      sub: "10 TABLETS \u00b7 ORAL USE",
+      tiny: `<span>Mfd. by: Demo Pharma Pvt. Ltd. (SYNTHETIC SAMPLE)</span><span>Mfg. Lic. DEMO-0000</span><span>B.No. AMX-0421 \u00b7 Mfg. 03/2026 \u00b7 Exp. 03/2028</span>`
+    }
+  };
+
   const s = samples[id];
-  if (!s) { document.body.textContent = "unknown sample id"; }
+  const strip = strips[id];
+  if (strip) {
+    document.body.classList.add("stripmode");
+    document.body.innerHTML = `
+      <div class="stripstage">
+        <div class="strip">
+          <div class="blisters">${'<span class="blister"></span>'.repeat(5)}</div>
+          <div class="striptext2">
+            <div class="drug">${strip.drug}</div>
+            <div class="formline">${strip.formline}</div>
+            <div class="dose">${strip.dose}</div>
+            <div class="sub">${strip.sub}</div>
+            <div class="tiny">${strip.tiny}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  else if (!s) { document.body.textContent = "unknown sample id"; }
   else {
     const tilts = ["tilt-a", "tilt-c", "tilt-b", "tilt-c", "tilt-a"];
     const nameHtml = s.smudgeWord

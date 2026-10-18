@@ -1,0 +1,51 @@
+{
+  "task": "SaaS product-level UI redesign (light theme, totally different design language)",
+  "date": "2026-10-18",
+  "stack": "vanilla HTML/CSS/JS + Express/node server on :3311",
+  "skills": ["ui-ux-pro-max (system prompt level)"],
+  "model_at_capture": "gemma-4-26b-a4b-it (LIVE mode, /api/mode)",
+  "viewport": { "desktop": "1440x900", "mobile": "390x844" },
+  "captures": [
+    "desktop-full.png — skin of the app: sidebar shell, topbar, guardrail, KPI tiles, sample grid, dropzone, empty state, history, FAB",
+    "desktop-worksheet.png — full-page worksheet after Sample 2 analyze (AMBIGUOUS READING, 4 high flags, table, 0/5 checklist)",
+    "desktop-signoff.png — 5/5 checklist verified, emerald verified rows, sign-off banner",
+    "desktop-copilot.png — MediPilot drawer open: gradient header, cognee memory chip, composer",
+    "desktop-copilot-answer.png — MediPilot answer rendered in-UI: guidance text, cited source, ReAct trace, memory recall, TTS + Copy buttons",
+    "mobile-390-full.png — collapsed top-bar layout, 2x2 KPIs, single column, FAB"
+  ],
+  "console": { "desktop": "0 errors, 0 warnings", "mobile": "0 errors, 0 warnings (after/favicon added)" },
+  "network": "all bitmap resources + 3 API GETs HTTP 200; no failed requests",
+  "api_copilot_probe": {
+    "endpoint": "POST /api/copilot (speak:false)",
+    "question": "preset: What does 1-0-1 mean…",
+    "dur_ms": 31219,
+    "trace_steps": 3,
+    "sources": ["Reading the 1-0-1 shorthand"],
+    "memory_used": 3,
+    "canned": false,
+    "note": "31s fits the new 90s AbortController budget in app.js; stale UI before budget change risk resolved client-side"
+  },
+  "ui_copilot_ask": {
+    "verified": true,
+    "question": "The slip reads Metoprolol 50 mg twice daily after food for 30 days, but confidence is only 0.54 and Metformin is the competing reading — what should I verify before dispensing?",
+    "answer_summary": "Metoprolol is a beta blocker for hypertension/angina/arrhythmia; watch for look-alike/sound-alike errors with Metformin or Metronidazole; do not stop abruptly.",
+    "source_cited": "Demo formulary — Metoprolol",
+    "trace": "ReAct Chain-of-Thought rendering present",
+    "memory": "3 prior exchanges recalled from local memory",
+    "tts_button": "present (speak:true audio delivered)",
+    "status_line": "Answer ready — grounded in the cited notes."
+  },
+  "fixes_during_run": [
+    "favicon 404 -> inline SVG brand-tile data URI in index.html",
+    "history summary hard cut -> ellipsis in app.js renderHistory",
+    "Notyf toast colors aligned to new severity palette",
+    "copilot fetch -> 90s AbortController budget + honest timeout bubble"
+  ],
+  "verdict": {
+    "route /": "pass",
+    "flow analyze(sampleId cached)": "pass",
+    "flow checklist 5/5 sign-off": "pass",
+    "flow copilot": "pass (in-UI ask completed — answer + cited source + trace + TTS button rendered)",
+    "responsive 390": "pass (nav horizontal scroll; modellabel hidden)"
+  }
+}

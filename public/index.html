@@ -1,86 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>RxSafe Lens — prescription-to-dispense safety checker</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>RxSafe Lens — Your medicines explained</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Ctext x='32' y='43' font-family='Arial,sans-serif' font-size='27' font-weight='800' fill='white' text-anchor='middle'%3ERx%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/vendor/notyf.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <span class="logo">Rx</span>
-    <div>
-      <h1>RxSafe Lens</h1>
-      <p class="tag">Gemma 4 reads the handwriting. Deterministic code checks it. The pharmacist decides.</p>
+<div class="app">
+
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">Rx</span>
+      <span class="brand-name">RxSafe Lens</span>
     </div>
-  </div>
-  <div class="modelbox">
-    <span id="modePill" class="pill loading">checking model…</span>
-    <span class="modellabel" id="modelName"></span>
-  </div>
-</header>
+    <div class="modechip" id="modeChip">
+      <span class="mode-dot"></span>
+      <span class="mode-text">loading…</span>
+    </div>
+  </header>
 
-<div class="guardrail">
-  <strong>Decision-support only.</strong> Not a clinical reference. Not counterfeit detection. RxSafe Lens never says a medicine is
-  safe to dispense — it produces a worksheet that a pharmacist must verify and approve.
-</div>
+  <!-- Progress -->
+  <nav class="progress">
+    <span class="step active" data-step="1">1. Upload</span>
+    <span class="step" data-step="2">2. Explain</span>
+    <span class="step" data-step="3">3. Discuss</span>
+    <span class="step" data-step="4">4. Reminders</span>
+  </nav>
 
-<main>
-  <section class="panel">
-    <h2>1 · Prescription</h2>
-    <div class="samples" id="samples"></div>
+  <!-- Stage 1: Upload -->
+  <section class="panel stage1" id="stage1">
+    <h1>Upload your prescription</h1>
+    <p class="hint">Photo works best. We use <b id="readModelName">a vision model</b> to read it, then explain it in plain words.</p>
 
-    <div class="upload">
-      <label for="fileInput" class="filelabel">Upload a prescription photo</label>
-      <input type="file" id="fileInput" accept="image/*" />
-      <span class="hint">Synthetic slips only in this prototype. Never upload a real patient record.</span>
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept="image/*,application/pdf" hidden />
+      <button class="primary" id="selectBtn">Choose photo</button>
+      <button class="ghost" id="micUploadBtn">🎙 Dictate text instead</button>
+      <div class="mic-status" id="micUploadStatus"></div>
     </div>
 
-    <h2>2 · Patient context</h2>
-    <textarea id="contextText" rows="3" placeholder="e.g. I am allergic to sulfa drugs. I also take a medicine for blood pressure."></textarea>
-    <span class="hint">Allergies, other medicines, age. Typed at the counter — this is what makes interaction questions possible.</span>
+    <div class="preview hidden" id="previewCard">
+      <img id="previewImg" alt="Preview" />
+      <div class="preview-info">
+        <span class="chip">Ready to read</span>
+        <button class="ghost" id="cancelUpload">Cancel</button>
+      </div>
+    </div>
 
-    <button id="analyzeBtn" class="primary">Analyze prescription</button>
-    <div id="status" class="status"></div>
+    <button class="primary hidden" id="readBtn">Read &amp; explain</button>
+    <div class="status" id="readStatus"></div>
   </section>
 
-  <section class="panel output">
-    <h2>3 · Dispensing worksheet</h2>
-    <div id="emptyState" class="empty">
-      <p>Pick a synthetic slip or upload an image to produce a worksheet.</p>
+  <!-- Stage 2: Explanation -->
+  <section class="panel stage2 hidden" id="stage2">
+    <h1>What your prescription says</h1>
+    <p class="hint">
+      <span class="chip">Explained in plain words</span>
+      <button class="ghost tiny inline" id="openChatBtn" type="button">Ask about it →</button>
+    </p>
+
+    <div class="cards" id="reportCards">
+      <!-- Dynamic content -->
     </div>
 
-    <div id="worksheet" class="hidden">
-      <div id="readiness" class="readiness"></div>
-      <p id="readSummary" class="summary"></p>
-      <p id="note" class="note hidden"></p>
+    <div class="actions email-row">
+      <input type="email" id="reportEmail" placeholder="you@example.com" />
+      <button class="ghost" id="emailReportBtn">Email this report</button>
+      <button class="ghost" id="printReportBtn">Print</button>
+    </div>
+    <div class="status" id="emailStatus"></div>
+  </section>
 
-      <h3>What was read</h3>
-      <div id="meds"></div>
+  <!-- Stage 3: Discussion (full-screen conversation) -->
+  <section class="panel stage3 chat-stage hidden" id="stage3" aria-label="Ask about your medicines">
+    <header class="chat-head">
+      <button class="iconbtn" id="chatBackBtn" type="button" title="Back to the explanation" aria-label="Back to the explanation">←</button>
+      <div class="chat-title">
+        <strong>Ask about your medicines</strong>
+        <span class="chat-sub" id="chatDocName">your document</span>
+      </div>
+      <button class="ghost tiny" id="newChatBtn" type="button" title="Start a fresh conversation">＋ New chat</button>
+    </header>
 
-      <h3>Safety flags</h3>
-      <div id="flags"></div>
+    <div class="chat-scroll" id="chatWindow">
+      <div class="chat-inner">
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-empty" id="chatEmpty">
+          <span class="ce-mark">Rx</span>
+          <h2>What would you like to know?</h2>
+          <p>I answer only from your document — the medicines, the timings and what the doctor wrote. Ask your own question or pick one below.</p>
+          <div class="ce-cards" id="chatSuggestions"></div>
+        </div>
+      </div>
+    </div>
 
-      <h3>Pharmacist verification checklist</h3>
-      <ol id="checklist" class="checklist"></ol>
-
-      <h3>Deterministic checks run by our code</h3>
-      <ul id="detChecks" class="detlist"></ul>
-
-      <p id="disclaimer" class="disclaimer"></p>
-      <div class="actions">
-        <button id="exportBtn" class="ghost">Export worksheet JSON</button>
-        <button id="printBtn" class="ghost">Print</button>
+    <div class="chat-dock">
+      <div class="chat-dock-inner">
+        <div class="chat-composer">
+          <label for="chatInput" class="sr-only">Ask about your medicines</label>
+          <textarea id="chatInput" rows="1" placeholder="Ask about your medicines…"></textarea>
+          <div class="composer-row">
+            <button class="iconbtn" id="micChatBtn" type="button" title="Ask by voice" aria-label="Ask by voice">🎙</button>
+            <span class="composer-hint">Enter to send</span>
+            <button class="send-btn" id="sendChatBtn" type="button" aria-label="Send question">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                   stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 19V5" />
+                <path d="m5.5 11.5 6.5-6.5 6.5 6.5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="mic-status" id="micChatStatus"></div>
+        <p class="chat-legal">Answers come only from your document. This is not medical advice — confirm with your doctor or pharmacist.</p>
       </div>
     </div>
   </section>
-</main>
 
-<footer>
-  <p>Demo formulary for prototype only; not a clinical reference. Synthetic prescriptions only. Track 1 · G3 Multimodal AI Intelligence.</p>
-</footer>
+  <!-- Stage 4: Reminders -->
+  <section class="panel stage4 hidden" id="stage4">
+    <h1>Set reminders</h1>
+    <p class="hint">We email you when it's time.</p>
 
-<script src="/app.js"></script>
+    <div class="form">
+      <div class="field">
+        <label for="remEmail">Email address</label>
+        <input type="email" id="remEmail" placeholder="you@example.com" />
+      </div>
+
+      <div class="field">
+        <label for="remVisitDate">Next doctor visit</label>
+        <input type="date" id="remVisitDate" />
+      </div>
+
+      <div class="field">
+        <label for="remRefillLead">Refill reminder when this many days remain</label>
+        <select id="remRefillLead">
+          <option value="0">When stock runs out</option>
+          <option value="3">3 days before (recommended)</option>
+          <option value="7">7 days before</option>
+        </select>
+      </div>
+
+      <div class="field" id="remStatusField" style="display:none;">
+        <span class="success" id="remStatus"></span>
+      </div>
+
+      <button class="primary" id="scheduleBtn">Schedule</button>
+    </div>
+  </section>
+
+  <audio id="audioPlayback" preload="none"></audio>
+
+</div>
+<script src="/vendor/notyf.min.js"></script>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/patient.js"></script>
 </body>
 </html>

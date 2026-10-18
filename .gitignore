@@ -1,7 +1,18 @@
 node_modules/
 .env
 .env.local
+# local prototype data: MediPilot memory + worksheet audit trail
+data/
 npm-debug.log*
 .DS_Store
 Thumbs.db
 *.tmp
+# local dev scratch (never part of the project)
+server.log
+server.err.log
+*.bak
+tmp-*
+cop*.json
+shot-*.png
+github-pr-summary.md
+leaderboard-checklist.md

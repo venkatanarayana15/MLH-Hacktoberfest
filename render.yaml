@@ -1,0 +1,23 @@
+# Render blueprint — one-click deploy of RxSafe Lens.
+# Secrets are NOT stored here; set them in the Render dashboard (sync: false).
+services:
+  - type: web
+    name: rxsafe-lens
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/mode
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.1
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: COGNEE_BASE_URL
+        sync: false
+      - key: COGNEE_API_KEY
+        sync: false
+      - key: COGNEE_DATASET
+        sync: false
