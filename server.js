@@ -699,6 +699,35 @@ app.get('/api/patient/docs', (_req, res) => {
   res.json({ docs: ragstore.listDocs() });
 });
 
+// What the retrieval layer actually holds, for the dashboard's RAG panel.
+app.get('/api/patient/rag', async (_req, res) => {
+  const docs = ragstore.listDocs();
+  let turns = 0;
+  for (const d of docs) turns += readChat(d.id).filter((t) => t.role === 'user').length;
+  let memory = { configured: false, reachable: false, mode: 'local' };
+  try {
+    const st = await cognee.status();
+    memory = { configured: st.cognee.configured, reachable: st.cognee.reachable, mode: st.mode };
+  } catch { /* memory is optional */ }
+  res.json({
+    documents: docs.length,
+    chunks: docs.reduce((n, d) => n + (d.chunks || 0), 0),
+    questions: turns,
+    top_k: ragstore.TOP_K,
+    docs: docs.slice(0, 4).map((d) => ({
+      id: d.id,
+      name: d.name,
+      chunks: d.chunks,
+      chars: d.chars,
+      drugs: d.drugs,
+      uploaded_at: d.uploaded_at
+    })),
+    memory,
+    retrieval: 'lexical top-k over your uploaded document (no external vector DB)',
+    disclaimer: GUARDRAIL
+  });
+});
+
 app.get('/api/patient/doc/:id', (req, res) => {
   const doc = ragstore.getDoc(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found.' });
@@ -897,7 +926,12 @@ app.post('/api/patient/discuss', async (req, res) => {
       deadlineMs: Number(process.env.DISCUSS_MODEL_MS || 20_000)
     });
     timings.model_ms = Date.now() - t;
-    answer = stripScaffold(rxgemini.scrubText(out));
+    answer = stripScaffold(rxgemini.scrubText(out))
+      // The model is told to quote excerpt ids so grounding stays verifiable,
+      // but the ids belong in `sources` — not in the sentence a patient reads.
+      .replace(/\s*\[[A-Za-z0-9][A-Za-z0-9._-]*#\d+\]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
   } catch (e) {
     console.error('[patient/discuss]', e.message);
     const first = hits[0];

@@ -5,14 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>RxSafe Lens — Your medicines explained</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Ctext x='32' y='43' font-family='Arial,sans-serif' font-size='27' font-weight='800' fill='white' text-anchor='middle'%3ERx%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/style.css" />
+  <!-- ?v= busts the browser cache after a deploy: a stale app.js next to fresh
+       HTML is exactly how "it still does not work" happens on a demo machine. -->
+  <link rel="stylesheet" href="/style.css?v=3" />
   <link rel="stylesheet" href="/vendor/notyf.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
-<div class="app">
+<div class="shell">
+
+  <!-- ================= Sidebar: navigation + RAG dashboard ================= -->
+  <aside class="sidebar" id="sidebar" aria-label="Session dashboard">
+    <div class="sb-brand">
+      <span class="logo">Rx</span>
+      <div class="sb-brand-copy">
+        <strong>RxSafe Lens</strong>
+        <span>prescription → plain words</span>
+      </div>
+    </div>
+
+    <div class="sb-mode">
+      <span class="mode-dot"></span>
+      <span id="sbMode">loading…</span>
+    </div>
+
+    <nav class="sb-nav" aria-label="Steps">
+      <button class="sb-step active" type="button" data-step="1"><b>1</b><span>Upload</span></button>
+      <button class="sb-step" type="button" data-step="2"><b>2</b><span>Explain</span></button>
+      <button class="sb-step" type="button" data-step="3"><b>3</b><span>Discuss</span></button>
+      <button class="sb-step" type="button" data-step="4"><b>4</b><span>Reminders</span></button>
+    </nav>
+
+    <section class="sb-card">
+      <h4>RAG index</h4>
+      <div class="sb-stats">
+        <div><b id="sbDocs">0</b><span>documents</span></div>
+        <div><b id="sbChunks">0</b><span>chunks</span></div>
+        <div><b id="sbQuestions">0</b><span>questions</span></div>
+      </div>
+      <p class="sb-note" id="sbRetrievalMode">lexical top-k over your own document</p>
+      <ul class="sb-list" id="sbDocsList">
+        <li class="muted">Upload a prescription to index it.</li>
+      </ul>
+    </section>
+
+    <section class="sb-card">
+      <h4>Last retrieval</h4>
+      <ul class="sb-list" id="sbRetrieval">
+        <li class="muted">Ask a question in Discuss to see the excerpts used.</li>
+      </ul>
+    </section>
+
+    <section class="sb-card">
+      <h4>Saved memory</h4>
+      <ul class="sb-list" id="sbMemory">
+        <li class="muted">Your document stays on this machine.</li>
+      </ul>
+    </section>
+
+    <p class="sb-foot">Answers are grounded only in your document. Not medical advice — confirm with your doctor or pharmacist.</p>
+  </aside>
+
+  <div class="app">
 
   <!-- Header -->
   <header class="topbar">
@@ -42,7 +98,7 @@
     <div class="upload-zone" id="uploadZone">
       <input type="file" id="fileInput" accept="image/*,application/pdf" hidden />
       <button class="primary" id="selectBtn">Choose photo</button>
-      <button class="ghost" id="micUploadBtn">🎙 Dictate text instead</button>
+      <button class="ghost" id="micUploadBtn">Dictate text instead</button>
       <div class="mic-status" id="micUploadStatus"></div>
     </div>
 
@@ -107,7 +163,14 @@
           <label for="chatInput" class="sr-only">Ask about your medicines</label>
           <textarea id="chatInput" rows="1" placeholder="Ask about your medicines…"></textarea>
           <div class="composer-row">
-            <button class="iconbtn" id="micChatBtn" type="button" title="Ask by voice" aria-label="Ask by voice">🎙</button>
+            <button class="iconbtn" id="micChatBtn" type="button" title="Ask by voice" aria-label="Ask by voice">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="2.5" width="6" height="11" rx="3" />
+                <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+                <path d="M12 17.5V21" />
+              </svg>
+            </button>
             <span class="composer-hint">Enter to send</span>
             <button class="send-btn" id="sendChatBtn" type="button" aria-label="Send question">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
@@ -159,10 +222,11 @@
 
   <audio id="audioPlayback" preload="none"></audio>
 
-</div>
+  </div><!-- /app -->
+</div><!-- /shell -->
 <script src="/vendor/notyf.min.js"></script>
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/patient.js"></script>
+<script src="/patient.js?v=3"></script>
 </body>
 </html>
