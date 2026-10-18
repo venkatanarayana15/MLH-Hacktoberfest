@@ -244,6 +244,88 @@ button { font-family: inherit; }
   font-size: 14px;
 }
 
+/* === Shell + Sidebar dashboard (RAG panel) === */
+.shell { display: flex; min-height: 100vh; }
+.sidebar { display: none; }
+
+@media (min-width: 1000px) {
+  .shell { max-width: 1240px; margin: 0 auto; align-items: flex-start; }
+  .sidebar {
+    display: flex; flex-direction: column; gap: 14px;
+    flex: 0 0 272px; width: 272px;
+    position: sticky; top: 0; align-self: flex-start;
+    height: 100vh; overflow-y: auto;
+    padding: 18px 14px 22px;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    border-left: 1px solid #e2e8f0;
+  }
+  .app { flex: 1 1 auto; max-width: 780px; }
+  .topbar .brand { display: none; }   /* the sidebar carries the brand on desktop */
+  .progress { display: none; }        /* the steps live in the sidebar on desktop */
+}
+
+.sb-brand { display: flex; align-items: center; gap: 10px; }
+.sb-brand .logo {
+  background: #4f46e5; color: #fff; font-weight: 700; font-size: 13px;
+  padding: 5px 10px; border-radius: 9px;
+}
+.sb-brand-copy { display: flex; flex-direction: column; min-width: 0; }
+.sb-brand-copy strong { font-size: 13.5px; color: #0f172a; }
+.sb-brand-copy span { font-size: 10.5px; color: #64748b; }
+
+.sb-mode {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; color: #475569;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+  padding: 7px 10px;
+}
+
+.sb-nav { display: flex; flex-direction: column; gap: 4px; }
+.sb-step {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  text-align: left; font: inherit; font-size: 13px; color: #475569;
+  background: transparent; border: 1px solid transparent; border-radius: 10px;
+  padding: 8px 10px; cursor: pointer;
+}
+.sb-step b {
+  width: 20px; height: 20px; border-radius: 6px; flex: 0 0 20px;
+  background: #f1f5f9; color: #475569; font-size: 11px;
+  display: grid; place-items: center;
+}
+.sb-step:hover { background: #f8fafc; }
+.sb-step.active { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; font-weight: 600; }
+.sb-step.active b { background: #4f46e5; color: #fff; }
+.sb-step.done b { background: #d1fae5; color: #047857; }
+
+.sb-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #fff; }
+.sb-card h4 {
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #94a3b8; margin-bottom: 9px; font-weight: 600;
+}
+.sb-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sb-stats b { display: block; font-size: 17px; line-height: 1.2; color: #0f172a; }
+.sb-stats span { font-size: 10px; color: #64748b; }
+.sb-note { font-size: 10.5px; color: #94a3b8; margin-top: 9px; }
+
+.sb-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.sb-list li { font-size: 11.5px; color: #475569; line-height: 1.45; }
+.sb-list li.muted { color: #94a3b8; }
+
+.sb-doc {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  text-align: left; font: inherit; cursor: pointer;
+  padding: 7px 9px; border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc;
+}
+.sb-doc:hover { border-color: #c7d2fe; background: #eef2ff; }
+.sb-doc b {
+  font-size: 11.5px; color: #0f172a;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-doc span { font-size: 10px; color: #64748b; }
+.sb-snippet { font-size: 11px; color: #475569; padding-left: 8px; border-left: 2px solid #c7d2fe; }
+.sb-foot { font-size: 10px; color: #94a3b8; line-height: 1.5; margin-top: auto; }
+
 /* === Discussion: full-screen conversation (ChatGPT-style) === */
 .sr-only {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;

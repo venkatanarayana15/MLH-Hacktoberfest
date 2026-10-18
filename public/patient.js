@@ -65,6 +65,11 @@
       s.classList.toggle('active', i === n);
       s.classList.toggle('done', i < n);
     });
+    document.querySelectorAll('.sb-step').forEach((s) => {
+      const i = Number(s.dataset.step);
+      s.classList.toggle('active', i === n);
+      s.classList.toggle('done', i < n);
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -106,9 +111,9 @@
   };
 
   const hearButton = (text) => {
-    const b = el('button', 'iconbtn hear', '🔊 Hear');
+    const b = el('button', 'iconbtn hear', 'Hear it');
     b.type = 'button';
-    b.dataset.label = '🔊 Hear';
+    b.dataset.label = 'Hear it';
     b.addEventListener('click', () => speak(text, b));
     return b;
   };
@@ -127,10 +132,11 @@
       return;
     }
     statusEl.textContent = 'Listening… speak now, tap again to stop.';
+    // Keep the button's SVG intact: swap innerHTML, not textContent.
+    const idleHtml = btn.innerHTML;
     btn.classList.add('recording');
     btn.textContent = '⏹';
-    btn.dataset.label = btn.dataset.label || '🎙';
-    const stopUI = () => { btn.classList.remove('recording'); btn.textContent = btn.dataset.label; btn.dataset.label = btn.textContent; };
+    const stopUI = () => { btn.classList.remove('recording'); btn.innerHTML = idleHtml; };
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -232,7 +238,9 @@
   $('#readBtn').addEventListener('click', async () => {
     if (!pendingFile) return;
     const f = pendingFile;
-    setBusy(true, $('#readStatus'), f.type.startsWith('image/') ? 'Reading your photo, then explaining it in plain words…' : 'Reading your document…');
+    setBusy(true, $('#readStatus'), f.type.startsWith('image/')
+      ? 'Reading your photo, then explaining it in plain words… (this takes about half a minute — hang on)'
+      : 'Reading your document… (this takes about half a minute — hang on)');
     try {
       const payload = { fileName: f.name };
       if (f.type.startsWith('image/')) {
@@ -281,6 +289,7 @@
     renderReport(data);
     renderChatWelcome(data);
     showStage(2);
+    refreshRag();
     // Tell the patient the read is done, out loud, if they have voice on.
     if (state.autoSpeak && data.explanation && data.explanation.plain_summary) {
       speak(data.explanation.plain_summary);
@@ -384,6 +393,86 @@
     }
   };
 
+  /* ============ sidebar dashboard: navigation + RAG panel ============ */
+  const setText = (sel, txt) => { const n = $(sel); if (n) n.textContent = txt; };
+
+  const refreshRag = async () => {
+    try {
+      const r = await fetch(`${API}/rag`);
+      const d = await r.json();
+      if (!r.ok) return;
+      setText('#sbDocs', d.documents);
+      setText('#sbChunks', d.chunks);
+      setText('#sbQuestions', d.questions);
+      setText('#sbRetrievalMode', `top-${d.top_k} lexical retrieval over your own uploads`);
+
+      const list = $('#sbDocsList');
+      list.innerHTML = '';
+      if (!d.docs.length) {
+        list.innerHTML = '<li class="muted">Upload a prescription to index it.</li>';
+      } else {
+        d.docs.forEach((doc) => {
+          const li = el('li');
+          const b = el('button', 'sb-doc');
+          b.type = 'button';
+          b.appendChild(el('b', null, doc.name));
+          const drugs = (doc.drugs || []).map((x) => x.drug || x).filter(Boolean).slice(0, 2).join(', ');
+          b.appendChild(el('span', null,
+            `${doc.chunks} chunk${doc.chunks === 1 ? '' : 's'} · ${doc.chars} chars · ${drugs || 'no medicine read'}`));
+          b.title = 'Open the discussion for this document';
+          b.addEventListener('click', () => {
+            showStage(3);
+            chatInput.focus();
+          });
+          li.appendChild(b);
+          list.appendChild(li);
+        });
+      }
+
+      const mem = $('#sbMemory');
+      mem.innerHTML = '';
+      mem.appendChild(el('li', null, d.memory && d.memory.reachable
+        ? 'Memory graph connected — earlier questions are recalled before answering.'
+        : 'Memory stays on this machine (browser + local server files).'));
+      mem.appendChild(el('li', null,
+        `${d.documents} document${d.documents === 1 ? '' : 's'} indexed · ${d.chunks} retrievable chunk${d.chunks === 1 ? '' : 's'} · ${d.questions} question${d.questions === 1 ? '' : 's'} answered`));
+    } catch { /* the dashboard is best-effort */ }
+  };
+
+  // Show the excerpts the last answer actually used — the visible half of RAG.
+  const showRetrieval = (sources) => {
+    const list = $('#sbRetrieval');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!sources || !sources.length) {
+      list.innerHTML = '<li class="muted">No excerpt matched — the answer said so instead of guessing.</li>';
+      return;
+    }
+    sources.slice(0, 4).forEach((s) => {
+      const snippet = String(s.snippet || '').replace(/\s+/g, ' ').trim();
+      list.appendChild(el('li', 'sb-snippet', `“${snippet.slice(0, 130)}${snippet.length > 130 ? '…' : ''}”`));
+    });
+  };
+
+  document.querySelectorAll('.sb-step').forEach((b) => {
+    b.addEventListener('click', () => showStage(Number(b.dataset.step)));
+  });
+
+  // On narrow screens the sidebar is hidden and the top progress bar is the only
+  // navigation — it used to be decorative, so taps on "3. Discuss" did nothing.
+  document.querySelectorAll('.progress .step').forEach((s) => {
+    s.setAttribute('role', 'button');
+    s.setAttribute('tabindex', '0');
+    const go = () => showStage(Number(s.dataset.step));
+    s.addEventListener('click', go);
+    s.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        go();
+      }
+    });
+  });
+
   /* ============ discussion (full-screen conversation) ============ */
   const chatWindow = $('#chatWindow');
   const chatMessages = $('#chatMessages');
@@ -449,7 +538,7 @@
         const s = el('div', 'sources');
         opts.sources.slice(0, 3).forEach((src) => {
           const snippet = String(src.snippet || '').replace(/\s+/g, ' ').trim();
-          const chip = el('span', 'source', `📄 ${snippet.slice(0, 64)}${snippet.length > 64 ? '…' : ''}`);
+          const chip = el('span', 'source', `From your document: “${snippet.slice(0, 56)}${snippet.length > 56 ? '…' : ''}”`);
           chip.title = snippet;
           s.appendChild(chip);
         });
@@ -457,9 +546,9 @@
       }
 
       const bar = el('div', 'bubble-actions');
-      const hb = el('button', 'iconbtn tiny', '🔊 Hear');
+      const hb = el('button', 'iconbtn tiny', 'Hear it');
       hb.type = 'button';
-      hb.dataset.label = '🔊 Hear';
+      hb.dataset.label = 'Hear it';
       hb.addEventListener('click', () => speak(text, hb));
       bar.appendChild(hb);
 
@@ -585,6 +674,8 @@
         'What should I watch out for after taking it?'
       ];
       addBubble('bot', d.answer, { sources: d.sources, followups });
+      showRetrieval(d.sources);
+      refreshRag();
       if (state.autoSpeak) speak(d.answer);
       const secs = d.timings && d.timings.total_ms ? (d.timings.total_ms / 1000).toFixed(1) : null;
       $('#micChatStatus').textContent = secs
@@ -690,6 +781,9 @@
       $('#modeChip').querySelector('.mode-text').textContent =
         cfg.live ? `${cfg.extract_model} reads · ${cfg.explain_model} explains` : 'cached mode';
       if (cfg.extract_model) $('#readModelName').textContent = cfg.extract_model;
+      setText('#sbMode', cfg.live
+        ? `${cfg.extract_model} reads · ${cfg.explain_model} explains`
+        : 'cached mode — no API key');
       const showMic = state.voice.stt;
       $('#micChatBtn').style.display = showMic ? '' : 'none';
       $('#micUploadBtn').style.display = showMic ? '' : 'none';
@@ -698,6 +792,7 @@
 
     const restored = loadMemory();
     showStage(1);
+    refreshRag();
     if (restored) {
       renderReport(null);
       renderChatWelcome(null);
