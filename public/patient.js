@@ -23,8 +23,29 @@
     autoSpeak: true,
     busy: false,
     chatBusy: false,
+    explaining: false,
+    explainError: null,
+    readMs: null,
+    explainMs: null,
     recorder: null,
-    chunks: []
+    chunks: [],
+    lang: 'en-IN'
+  };
+
+  // The language the patient picked travels with the whole voice loop: what the
+  // microphone transcribes, what the model answers in, and what is spoken back.
+  const LANG_KEY = 'rxsafe_lang';
+  const saveLang = () => {
+    try { localStorage.setItem(LANG_KEY, state.lang); } catch { /* private mode */ }
+  };
+  const loadLang = () => {
+    try {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved && $('#chatLang') && [...$('#chatLang').options].some((o) => o.value === saved)) {
+        state.lang = saved;
+        $('#chatLang').value = saved;
+      }
+    } catch { /* private mode */ }
   };
 
   const saveMemory = () => {
@@ -88,7 +109,7 @@
         const r = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: clean.slice(0, 1400), languageCode: 'en-IN' })
+          body: JSON.stringify({ text: clean.slice(0, 1400), languageCode: state.lang })
         });
         if (r.ok) {
           const d = await r.json();
@@ -103,7 +124,7 @@
     }
     if ('speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance(clean);
-      u.lang = 'en-IN';
+      u.lang = state.lang;
       u.onend = done;
       speechSynthesis.cancel();
       speechSynthesis.speak(u);
@@ -154,7 +175,7 @@
           const r = await fetch('/api/stt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ audioBase64, mime: blob.type || 'audio/webm', languageCode: 'en-IN' })
+            body: JSON.stringify({ audioBase64, mime: blob.type || 'audio/webm', languageCode: state.lang })
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || 'transcription failed');
@@ -238,9 +259,11 @@
   $('#readBtn').addEventListener('click', async () => {
     if (!pendingFile) return;
     const f = pendingFile;
+    // The read is its own request now (a few seconds); the plain-word pass is
+    // fetched after the report is on screen, so do not promise half a minute.
     setBusy(true, $('#readStatus'), f.type.startsWith('image/')
-      ? 'Reading your photo, then explaining it in plain words… (this takes about half a minute — hang on)'
-      : 'Reading your document… (this takes about half a minute — hang on)');
+      ? 'Reading your photo… a few seconds.'
+      : 'Reading your document… a few seconds.');
     try {
       const payload = { fileName: f.name };
       if (f.type.startsWith('image/')) {
@@ -284,15 +307,65 @@
     state.docId = data.doc.id;
     state.docName = data.doc.name;
     state.extraction = data.extraction;
-    state.explanation = data.explanation;
+    state.explanation = data.explanation || null;
+    state.explainError = null;
+    state.readMs = (data.timings && data.timings.extract_ms) || null;
     saveMemory();
     renderReport(data);
     renderChatWelcome(data);
     showStage(2);
     refreshRag();
-    // Tell the patient the read is done, out loud, if they have voice on.
-    if (state.autoSpeak && data.explanation && data.explanation.plain_summary) {
-      speak(data.explanation.plain_summary);
+
+    // Report the measured read time instead of leaving "it felt slow" open.
+    const readS = data.timings && data.timings.extract_ms ? (data.timings.extract_ms / 1000).toFixed(1) : null;
+    const meds = (data.extraction && data.extraction.medicines) || [];
+    $('#readStatus').textContent = readS
+      ? `Read in ${readS}s${meds.length ? '' : ' — no medicine name could be read from this document, so check the photo again'}.`
+      : '';
+
+    if (state.explanation) {
+      // Tell the patient the read is done, out loud, if they have voice on.
+      if (state.autoSpeak && state.explanation.plain_summary) speak(state.explanation.plain_summary);
+    } else if (meds.length) {
+      requestExplanation();
+    }
+  };
+
+  // The plain-language pass runs on its own request (and its own budget), so the
+  // read appears immediately and the wording lands a few seconds later.
+  const requestExplanation = async () => {
+    if (!state.docId) return;
+    state.explaining = true;
+    state.explainError = null;
+    renderReport(null);
+    try {
+      // Hard client-side ceiling. The server already budgets each model tier, but
+      // a dropped connection must never leave "Putting this in plain words…" on
+      // screen forever with no way out.
+      const r = await fetch(`${API}/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ docId: state.docId }),
+        signal: AbortSignal.timeout(60_000)
+      });
+      const d = await r.json();
+      if (r.ok && d.explanation) {
+        state.explanation = d.explanation;
+        state.explainMs = (d.timings && d.timings.total_ms) || null;
+        state.explaining = false;
+        saveMemory();
+        renderReport(null);
+        renderChatWelcome(null);
+        if (state.autoSpeak && d.explanation.plain_summary) speak(d.explanation.plain_summary);
+        return;
+      }
+      state.explaining = false;
+      state.explainError = d.error || 'The plain-word explanation did not finish.';
+      renderReport(null);
+    } catch (e) {
+      state.explaining = false;
+      state.explainError = `The plain-word explanation could not be fetched (${String(e.message).slice(0, 60)}).`;
+      renderReport(null);
     }
   };
 
@@ -306,10 +379,24 @@
     const head = el('div', 'card card-head');
     const who = el('div', 'card-title-row');
     who.appendChild(el('h3', null, state.docName || 'Your document'));
-    who.appendChild(hearButton(exp.plain_summary || ''));
+    if (exp.plain_summary) who.appendChild(hearButton(exp.plain_summary));
     head.appendChild(who);
-    head.appendChild(el('p', null, exp.plain_summary || 'Read completed. Ask a question below to go through it together.'));
+    if (exp.plain_summary) {
+      head.appendChild(el('p', null, exp.plain_summary));
+    } else if (state.explaining) {
+      head.appendChild(el('p', 'explaining', 'Putting this in plain words… the read below is already done.'));
+    } else if (state.explainError) {
+      head.appendChild(el('p', 'warn', `The plain-word explanation did not finish. The read below is unaffected — you can still discuss it. (${state.explainError.slice(0, 110)})`));
+      const again = el('button', 'ghost tiny', 'Try the plain words again');
+      again.type = 'button';
+      again.addEventListener('click', () => requestExplanation());
+      head.appendChild(again);
+    } else {
+      head.appendChild(el('p', null, 'Read completed. Ask a question below to go through it together.'));
+    }
     const split = el('p', 'card-sub', `Read by ${ex.model || 'vision model'} · explained by ${(exp && exp.model) || 'reasoning model'}` +
+      (state.readMs ? ` · read in ${(state.readMs / 1000).toFixed(1)}s` : '') +
+      (state.explainMs ? ` · explained in ${(state.explainMs / 1000).toFixed(1)}s` : '') +
       (ex.date ? ` · dated ${ex.date}` : '') + (ex.prescriber ? ` · ${ex.prescriber}` : ''));
     head.appendChild(split);
     wrap.appendChild(head);
@@ -396,9 +483,9 @@
   /* ============ sidebar dashboard: navigation + RAG panel ============ */
   const setText = (sel, txt) => { const n = $(sel); if (n) n.textContent = txt; };
 
-  const refreshRag = async () => {
+  const refreshRag = async (attempt = 0) => {
     try {
-      const r = await fetch(`${API}/rag`);
+      const r = await fetch(`${API}/rag`, { signal: AbortSignal.timeout(10_000) });
       const d = await r.json();
       if (!r.ok) return;
       setText('#sbDocs', d.documents);
@@ -420,10 +507,7 @@
           b.appendChild(el('span', null,
             `${doc.chunks} chunk${doc.chunks === 1 ? '' : 's'} · ${doc.chars} chars · ${drugs || 'no medicine read'}`));
           b.title = 'Open the discussion for this document';
-          b.addEventListener('click', () => {
-            showStage(3);
-            chatInput.focus();
-          });
+          b.addEventListener('click', () => openDocument(doc.id));
           li.appendChild(b);
           list.appendChild(li);
         });
@@ -436,7 +520,11 @@
         : 'Memory stays on this machine (browser + local server files).'));
       mem.appendChild(el('li', null,
         `${d.documents} document${d.documents === 1 ? '' : 's'} indexed · ${d.chunks} retrievable chunk${d.chunks === 1 ? '' : 's'} · ${d.questions} question${d.questions === 1 ? '' : 's'} answered`));
-    } catch { /* the dashboard is best-effort */ }
+    } catch { /* the dashboard is best-effort */
+      // One silent failure leaves stale counts and a dead document list on
+      // screen, which reads as "it didn't work". Retry once before giving up.
+      if (attempt < 1) setTimeout(() => refreshRag(attempt + 1), 1200);
+    }
   };
 
   // Show the excerpts the last answer actually used — the visible half of RAG.
@@ -638,6 +726,52 @@
     } catch { /* first visit for this doc */ }
   };
 
+  // Clicking a document in the sidebar opens THAT document. Before, the list
+  // only jumped to the chat, so with two prescriptions on file the patient
+  // asked about one while looking at the other.
+  const openDocument = async (id) => {
+    if (!id || state.busy) return;
+    try {
+      const [docRes, exRes] = await Promise.all([
+        fetch(`${API}/doc/${id}`, { signal: AbortSignal.timeout(15_000) }),
+        fetch(`${API}/explain/${id}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
+      ]);
+      const docData = await docRes.json();
+      if (!docRes.ok || !docData.doc) throw new Error(docData.error || 'document not found');
+      const cached = exRes && exRes.ok ? await exRes.json().catch(() => null) : null;
+      const doc = docData.doc;
+      const meta = doc.meta || {};
+
+      state.docId = doc.id;
+      state.docName = doc.name;
+      state.extraction = {
+        model: meta.model || 'text',
+        raw_text: doc.text,
+        document_type: doc.kind,
+        medicines: doc.drugs || [],
+        prescriber: meta.prescriber || null,
+        date: meta.date || null,
+        follow_up_date: meta.follow_up_date || null
+      };
+      state.explanation = (cached && cached.explanation) || null;
+      state.explaining = false;
+      state.explainError = null;
+      state.readMs = null;
+      state.explainMs = null;
+      saveMemory();
+      renderReport(null);
+      renderChatWelcome(null);
+      showStage(3);
+      await loadChatFromServer();
+      chatInput.focus();
+      // A cached explanation is instant; an uncached one is fetched in the
+      // background so the document opens immediately either way.
+      if (!state.explanation && (state.extraction.medicines || []).length) requestExplanation();
+    } catch (e) {
+      setText('#sbMode', `Could not open that document (${String(e.message).slice(0, 60)}).`);
+    }
+  };
+
   const autoGrow = () => {
     if (!chatInput) return;
     chatInput.style.height = 'auto';
@@ -663,7 +797,7 @@
       const r = await fetch(`${API}/discuss`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ docId: state.docId, question: q })
+        body: JSON.stringify({ docId: state.docId, question: q, languageCode: state.lang })
       });
       const d = await r.json();
       thinking.remove();
@@ -691,6 +825,16 @@
       chatInput.focus();
     }
   };
+
+  // Language selector: the server is the source of truth for what Sarvam can
+  // actually transcribe and speak, so the options come from /api/patient/config.
+  $('#chatLang').addEventListener('change', function () {
+    state.lang = this.value;
+    saveLang();
+    const opt = this.options[this.selectedIndex];
+    const pretty = opt ? `${opt.textContent.trim()} — I'll answer and speak in this language` : '';
+    $('#micChatStatus').textContent = pretty;
+  });
 
   $('#sendChatBtn').addEventListener('click', ask);
   chatInput.addEventListener('input', autoGrow);
@@ -778,6 +922,17 @@
       const r = await fetch(`${API}/config`);
       const cfg = await r.json();
       state.voice = cfg.voice || { stt: false, tts: false };
+      if (Array.isArray(cfg.voice && cfg.voice.languages) && cfg.voice.languages.length) {
+        const sel = $('#chatLang');
+        sel.innerHTML = '';
+        cfg.voice.languages.forEach((l) => {
+          const o = document.createElement('option');
+          o.value = l.code;
+          o.textContent = l.native || l.label || l.code;
+          sel.appendChild(o);
+        });
+      }
+      loadLang();
       $('#modeChip').querySelector('.mode-text').textContent =
         cfg.live ? `${cfg.extract_model} reads · ${cfg.explain_model} explains` : 'cached mode';
       if (cfg.extract_model) $('#readModelName').textContent = cfg.extract_model;

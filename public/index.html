@@ -7,7 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Ctext x='32' y='43' font-family='Arial,sans-serif' font-size='27' font-weight='800' fill='white' text-anchor='middle'%3ERx%3C/text%3E%3C/svg%3E" />
   <!-- ?v= busts the browser cache after a deploy: a stale app.js next to fresh
        HTML is exactly how "it still does not work" happens on a demo machine. -->
-  <link rel="stylesheet" href="/style.css?v=3" />
+  <link rel="stylesheet" href="/style.css?v=4" />
   <link rel="stylesheet" href="/vendor/notyf.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -163,6 +163,13 @@
           <label for="chatInput" class="sr-only">Ask about your medicines</label>
           <textarea id="chatInput" rows="1" placeholder="Ask about your medicines…"></textarea>
           <div class="composer-row">
+            <label class="sr-only" for="chatLang">Language for dictation and spoken answers</label>
+            <select id="chatLang" class="lang-select" title="Language for your question and the spoken answer">
+              <option value="en-IN">English</option>
+              <option value="hi-IN">हिन्दी</option>
+              <option value="ta-IN">தமிழ்</option>
+              <option value="kn-IN">ಕನ್ನಡ</option>
+            </select>
             <button class="iconbtn" id="micChatBtn" type="button" title="Ask by voice" aria-label="Ask by voice">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -227,6 +234,6 @@
 <script src="/vendor/notyf.min.js"></script>
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/patient.js?v=3"></script>
+<script src="/patient.js?v=4"></script>
 </body>
 </html>

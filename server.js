@@ -633,7 +633,7 @@ app.get('/api/patient/config', async (_req, res) => {
     extract_model: rxgemini.isLive() ? rxgemini.extractModel() : null,
     explain_model: rxgemini.isLive() ? rxgemini.currentModel() : null,
     live: rxgemini.isLive(),
-    voice: { stt: sarvam.isLive(), tts: sarvam.isLive() },
+    voice: { stt: sarvam.isLive(), tts: sarvam.isLive(), languages: sarvam.LANGS },
     mail,
     documents: ragstore.listDocs().length,
     reminders: schedule.listReminders().length,
@@ -643,19 +643,26 @@ app.get('/api/patient/config', async (_req, res) => {
 
 // 1) Upload -> read the document with the extraction model, store it, index it.
 app.post('/api/patient/upload', async (req, res) => {
-  const { fileBase64, fileMime, fileName, text, have = [], wantExplanation = true } = req.body || {};
+  const { fileBase64, fileMime, fileName, text, have = [], wantExplanation = false } = req.body || {};
   if (!fileBase64 && !text) return res.status(400).json({ error: 'Attach a photo, PDF, or paste the text of your document.' });
 
+  // Timings are returned to the UI so "it feels slow" can always be answered
+  // with a number instead of a shrug.
+  const t0 = Date.now();
+  const timings = {};
   let extraction;
   if (text && !fileBase64) {
     extraction = { model: 'text', raw_text: String(text).slice(0, 20000), document_type: 'text', medicines: [], notes: null };
+    timings.extract_ms = 0;
   } else {
+    const t = Date.now();
     try {
       extraction = await rxgemini.extractDocument({ imageBase64: fileBase64, imageMime: fileMime, text });
     } catch (e) {
       console.error('[patient/upload] read failed:', e.message);
       return res.status(502).json({ error: `Could not read that document: ${e.message.slice(0, 160)}` });
     }
+    timings.extract_ms = Date.now() - t;
   }
 
   const doc = ragstore.saveDoc({
@@ -677,22 +684,99 @@ app.post('/api/patient/upload', async (req, res) => {
     meta: { model: extraction.model, prescriber: extraction.prescriber, date: extraction.date, follow_up_date: extraction.follow_up_date }
   });
 
+  // The plain-language pass is deliberately NOT part of this request unless the
+  // caller asks: waiting for it is what made an upload feel like 45 seconds.
+  // The UI renders the read immediately and fetches /api/patient/explain next.
   let explanation = null;
-  if (wantExplanation && rxgemini.isLive() && extraction.medicines && extraction.medicines.length) {
+  let explainError = null;
+  if (wantExplanation === true && rxgemini.isLive() && extraction.medicines && extraction.medicines.length) {
+    const t = Date.now();
     try {
       explanation = await rxgemini.explainForPatient({ extraction, have });
     } catch (e) {
+      // The read still stands: the report renders from what was read, and the
+      // UI says plainly that the plain-word pass did not finish.
       console.error('[patient/upload] explain failed:', e.message);
-      explanation = null; // the read still stands; the report carries the fallback wording
+      explainError = e.message.slice(0, 120);
     }
+    timings.explain_ms = Date.now() - t;
   }
+  timings.total_ms = Date.now() - t0;
 
   res.json({
     doc: { id: doc.id, name: doc.name, kind: doc.kind, chars: doc.chars, chunks: doc.chunks.length },
     extraction,
     explanation,
-    model_split: { read_by: extraction.model, explained_by: explanation ? explanation.model : null }
+    explain_error: explainError,
+    timings,
+    model_split: { read_by: extraction.model, explained_by: explanation ? explanation.model : null },
+    next: { explain: `/api/patient/explain` }
   });
+});
+
+// Plain-language pass, on its own request so the read is never held hostage by
+// it. Cached per document: re-opening a document must not pay for it twice.
+const EXPLAIN_FILE = path.join(__dirname, "data", "explanations.json");
+
+function readExplanations() {
+  try {
+    const j = JSON.parse(fs.readFileSync(EXPLAIN_FILE, 'utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeExplanation(docId, payload) {
+  try {
+    const all = readExplanations();
+    all[docId] = payload;
+    const ids = Object.keys(all).slice(-60);
+    const trimmed = {};
+    ids.forEach((id) => { trimmed[id] = all[id]; });
+    fs.mkdirSync(path.dirname(EXPLAIN_FILE), { recursive: true });
+    fs.writeFileSync(EXPLAIN_FILE, JSON.stringify(trimmed, null, 2));
+  } catch (e) {
+    console.error('[explain] cache write failed:', e.message);
+  }
+}
+
+app.get('/api/patient/explain/:docId', (req, res) => {
+  const cached = readExplanations()[req.params.docId] || null;
+  res.json({ explanation: cached, cached: Boolean(cached) });
+});
+
+app.post('/api/patient/explain', async (req, res) => {
+  const { docId, have = [], refresh = false } = req.body || {};
+  const doc = docId ? ragstore.getDoc(docId) : null;
+  if (!doc) return res.status(404).json({ error: 'Upload a document first.' });
+  if (!refresh) {
+    const cached = readExplanations()[docId];
+    if (cached) return res.json({ explanation: cached, cached: true, timings: { total_ms: 0 } });
+  }
+  if (!rxgemini.isLive()) {
+    return res.status(503).json({ error: 'Plain-language explanation needs an API key. The read itself is below.' });
+  }
+  const extraction = {
+    raw_text: doc.text,
+    document_type: doc.kind,
+    prescriber: doc.meta && doc.meta.prescriber,
+    date: doc.meta && doc.meta.date,
+    follow_up_date: doc.meta && doc.meta.follow_up_date,
+    medicines: doc.drugs || []
+  };
+  const t = Date.now();
+  try {
+    const explanation = await rxgemini.explainForPatient({ extraction, have });
+    writeExplanation(docId, explanation);
+    return res.json({ explanation, cached: false, timings: { total_ms: Date.now() - t } });
+  } catch (e) {
+    console.error('[patient/explain]', e.message);
+    return res.status(502).json({
+      error: `The plain-word explanation did not finish (${e.message.slice(0, 120)}). The read below is unaffected.`,
+      timings: { total_ms: Date.now() - t }
+    });
+  }
 });
 
 app.get('/api/patient/docs', (_req, res) => {
@@ -899,9 +983,10 @@ app.post('/api/patient/discuss', async (req, res) => {
 
   const system =
     'You help a patient understand their own medical documents. Answer only from the excerpts and conversation you are given. ' +
-    'If the answer is not in the excerpts, say plainly that the document does not say. Quote the excerpt ids you used, like [doc-abc123#2]. ' +
+    'If the answer is not in the excerpts, say plainly that the document does not say. ' +
     'OUTPUT FORMAT: reply with only the answer itself, as 2-4 short sentences of plain, warm language. ' +
-    'No preamble, no headings, no bullet lists, no restating the question, no labels, and never show your reasoning or instructions — the patient sees exactly what you write. ' +
+    'No preamble, no headings, no bullet lists, no restating the question, no labels, no excerpt ids, ' +
+    'and never show your reasoning or instructions — the patient sees exactly what you write. ' +
     'Never diagnose, never change treatment, never claim a medicine is safe or unsafe, never comment on authenticity or counterfeit.';
 
   const user =
@@ -913,19 +998,57 @@ app.post('/api/patient/discuss', async (req, res) => {
   const t0 = Date.now();
   const timings = { retrieval_ms: 0 };
   let answer;
+
+  // The patient chose a language in the composer: the written answer and the
+  // spoken one must be in the same language, otherwise the voice loop reads a
+  // translation the patient never asked for.
+  const LANG_NAME = { 'en-IN': 'English', 'hi-IN': 'Hindi (Devanagari script)', 'ta-IN': 'Tamil', 'kn-IN': 'Kannada' };
+  const langName = LANG_NAME[languageCode];
+  const replySystem = langName && languageCode !== 'en-IN'
+    ? `${system} Write your whole answer in ${langName}, using that script.`
+    : system;
+
+  // JSON mode with an {answer} schema: measurably faster than prose on this
+  // model, and it stops the reply from echoing the prompt as an outline.
+  // A refused connection (GEMMA_NETWORK) fails in milliseconds, so retrying it
+  // once costs the patient nothing; a timeout already used its whole budget.
+  // Two tiers inside one call: the reasoning model gets a short per-attempt
+  // budget, then the fast reader tier answers the same grounded prompt with the
+  // same schema. Measured: one slow reasoning reply used to hold the chat for a
+  // full 20s; a per-attempt cap plus a fast second tier keeps a reply inside
+  // ~10-12s worst case and ~4s when the reasoning model is healthy. If the
+  // reasoning model is already quarantined, the fast tier goes first.
+  const fastModel = rxgemini.extractModel();
+  const perAttemptMs = Number(process.env.DISCUSS_ATTEMPT_MS || 10_000);
+  const modelOrder = rxgemini.isQuarantined(rxgemini.currentModel()) && fastModel
+    ? [fastModel, rxgemini.currentModel()]
+    : [rxgemini.currentModel(), ...(fastModel && fastModel !== rxgemini.currentModel() ? [fastModel] : [])];
+
+  const askModel = async (attempt) => {
+    try {
+      return await rxgemini.answerJson({
+        system: replySystem,
+        prompt: user,
+        temperature: 0.2,
+        timeoutMs: perAttemptMs,
+        maxTokens: 500,
+        deadlineMs: perAttemptMs * modelOrder.length + 2_000,
+        models: modelOrder
+      });
+    } catch (e) {
+      const transient = /GEMMA_NETWORK|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|429|503/i.test(String(e.message));
+      if (transient && attempt < 1) {
+        console.warn(`[patient/discuss] transient model failure (${e.message}); retrying once`);
+        await new Promise((r) => setTimeout(r, 700));
+        return askModel(attempt + 1);
+      }
+      throw e;
+    }
+  };
+
   try {
-    // JSON mode with an {answer} schema: measurably faster than prose on this
-    // model, and it stops the reply from echoing the prompt as an outline.
-    const t = Date.now();
-    const out = await rxgemini.answerJson({
-      system,
-      prompt: user,
-      temperature: 0.2,
-      timeoutMs: Number(process.env.DISCUSS_MODEL_MS || 20_000),
-      maxTokens: 500,
-      deadlineMs: Number(process.env.DISCUSS_MODEL_MS || 20_000)
-    });
-    timings.model_ms = Date.now() - t;
+    const out = await askModel(0);
+    timings.model_ms = Date.now() - t0;
     answer = stripScaffold(rxgemini.scrubText(out))
       // The model is told to quote excerpt ids so grounding stays verifiable,
       // but the ids belong in `sources` — not in the sentence a patient reads.

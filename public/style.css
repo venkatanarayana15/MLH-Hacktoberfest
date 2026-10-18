@@ -331,6 +331,19 @@ button { font-family: inherit; }
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* The read lands first; the plain-word pass follows on its own request. */
+.explaining {
+  color: #64748b; font-size: 13.5px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px; padding: 8px 10px;
+}
+@keyframes shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
 body.chat-open { overflow: hidden; }
 
 /* The discussion takes the whole screen: a conversation, not a 340px box. */
@@ -505,6 +518,14 @@ body.chat-open { overflow: hidden; }
 .composer-row .iconbtn:hover { background: #e2e8f0; }
 .composer-row .iconbtn.recording { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
 .composer-hint { flex: 1 1 auto; font-size: 10.5px; color: #94a3b8; }
+.lang-select {
+  flex: 0 0 auto; max-width: 110px;
+  padding: 5px 8px; border-radius: 8px;
+  border: 1px solid #e2e8f0; background: #f8fafc; color: #334155;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.lang-select:hover { border-color: #c7d2fe; background: #eef2ff; }
+.lang-select:focus-visible { outline: 2px solid #4f46e5; outline-offset: 1px; }
 .send-btn {
   flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
   border: 0; background: #4f46e5; color: #fff;
