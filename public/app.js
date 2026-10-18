@@ -1,60 +1,71 @@
+// RxSafe Lens UI — talks to /api/mode, /api/samples and /api/analyze-rx.
+// Renders the dispensing worksheet exactly as the API produces it: nothing here
+// computes safety findings in the browser, so the demo shows what the backend
+// (Gemma + deterministic rules) actually returned.
+
 const $ = (id) => document.getElementById(id);
-let lastImageDataUrl = null;
+const escapeHtml = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const state = { sampleId: null, image: null };
 
 async function loadMode() {
   try {
     const m = await (await fetch('/api/mode')).json();
-    const b = $('mode-badge');
-    b.textContent = m.live ? `LIVE · ${m.model}` : 'CACHED DEMO MODE';
-    b.className = 'badge ' + (m.live ? 'live' : 'cached');
+    const pill = $('modePill');
+    pill.className = `pill ${m.live ? 'live' : 'cached'}`;
+    pill.textContent = m.live ? 'LIVE · Gemma reading' : 'CACHED · synthetic slips only';
+    $('modelName').textContent =
+      m.live ? `model: ${m.model}` : 'no GEMINI_API_KEY — cached worksheets only';
   } catch {
-    $('mode-badge').textContent = 'offline';
+    $('modePill').textContent = 'offline';
   }
 }
 
-async function loadExamples() {
-  const exs = await (await fetch('/api/examples')).json();
-  const sel = $('example-select');
-  for (const ex of exs) {
-    const o = document.createElement('option');
-    o.value = ex.id;
-    o.textContent = `${ex.kind === 'predatory' ? '🚩' : ex.kind === 'fair' ? '✅' : '⚠️'} ${ex.label}`;
-    sel.appendChild(o);
+async function loadSamples() {
+  let samples = [];
+  try {
+    samples = await (await fetch('/api/samples')).json();
+  } catch {
+    return;
   }
-  sel.addEventListener('change', () => {
-    const ex = exs.find((e) => e.id === sel.value);
-    if (ex) $('message').value = ex.text;
-  });
+  const wrap = $('samples');
+  wrap.innerHTML = '';
+  for (const s of samples) {
+    const card = document.createElement('div');
+    card.className = 'sample';
+    card.dataset.id = s.id;
+    card.innerHTML = `
+      <img src="${escapeHtml(s.imageUrl)}" alt="${escapeHtml(s.label)}" />
+      <div>
+        <div class="sname">${escapeHtml(s.label)}</div>
+        <div class="sctx">Patient context: ${escapeHtml(s.contextText)}</div>
+      </div>`;
+    card.addEventListener('click', () => selectSample(s, card));
+    wrap.appendChild(card);
+  }
 }
 
-$('screenshot').addEventListener('change', (e) => {
+function selectSample(s, card) {
+  state.sampleId = s.id;
+  state.image = null;
+  $('fileInput').value = '';
+  document.querySelectorAll('.sample').forEach((el) => el.classList.remove('sel'));
+  card.classList.add('sel');
+  $('contextText').value = s.contextText;
+  $('status').textContent = `Sample selected: ${s.label}. Add or edit the patient context, then analyze.`;
+}
+
+$('fileInput').addEventListener('change', (e) => {
   const f = e.target.files[0];
-  $('file-name').textContent = f ? `📷 ${f.name}` : 'Attach agreement photo (optional)';
+  if (!f) return;
+  state.image = f; // stored as File; converted on analyze
+  state.sampleId = null;
+  document.querySelectorAll('.sample').forEach((el) => el.classList.remove('sel'));
+  $('status').textContent = `Photo attached: ${f.name}. This will be read LIVE by Gemma.`;
 });
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-function highlight(text, flags) {
-  let html = escapeHtml(text);
-  for (const f of flags || []) {
-    if (!f.quoted_evidence) continue;
-    const esc = escapeHtml(f.quoted_evidence);
-    if (html.includes(esc)) {
-      html = html.replace(esc, `<mark class="hl-${f.severity}">${esc}</mark>`);
-    }
-  }
-  return html;
-}
-
-const VERDICTS = {
-  landlord_heavy: { cls: 'high', label: 'LANDLORD-HEAVY — negotiate before signing' },
-  mixed: { cls: 'medium', label: 'MIXED — several clauses need negotiation' },
-  tenant_favorable: { cls: 'ok', label: 'TENANT-FAVORABLE — standard protections present' }
-};
-
-function fileToDataUrl(file) {
+function dataUrlOf(file) {
   return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(String(r.result));
@@ -63,91 +74,168 @@ function fileToDataUrl(file) {
   });
 }
 
-function render(data) {
-  const r = data.report;
-  $('inputs-panel').classList.remove('hidden');
-  $('report').classList.remove('hidden');
-
-  $('input-text').innerHTML = highlight(data.sourceText, r.flags);
-  if (lastImageDataUrl) {
-    $('image-box').classList.remove('hidden');
-    $('input-image').src = lastImageDataUrl;
+const READYNESS = {
+  pharmacist_verification_required: {
+    cls: 'low',
+    label: 'READABLE SLIP — pharmacist verification required'
+  },
+  ambiguous_clarification_required: {
+    cls: 'medium',
+    label: 'AMBIGUOUS READING — clarification required before dispensing'
+  },
+  incomplete_information: {
+    cls: 'high',
+    label: 'INCOMPLETE INFORMATION — do not dispense until resolved'
   }
-  $('input-rules').innerHTML = (data.rules || [])
-    .map(
-      (x) =>
-        `<li><span class="sev sev-${x.severity}">${x.severity}</span> <strong>${escapeHtml(x.label)}</strong>${x.evidence ? ` — <code>${escapeHtml(x.evidence)}</code>` : ''}</li>`
-    )
-    .join('') || '<li>No deterministic findings — Gemma judgment only.</li>';
+};
 
-  const v = VERDICTS[r.verdict] || VERDICTS.mixed;
-  const modeLabel =
-    data.mode === 'live'
-      ? 'live Gemma analysis'
-      : data.mode === 'cached-fallback'
-        ? 'cached analysis (live unavailable)'
-        : 'cached analysis (offline demo)';
-  $('verdict-banner').className = 'verdict ' + v.cls;
-  $('verdict-banner').innerHTML = `<strong>${v.label}</strong><span class="muted">· confidence ${(r.confidence * 100).toFixed(0)}% · ${modeLabel}</span>`;
-
-  $('flags').innerHTML =
-    (r.flags || [])
-      .map(
-        (f) => `
-    <div class="flag" data-sev="${f.severity}">
-      <div class="flag-head"><span class="sev sev-${f.severity}">${f.severity}</span><strong>${escapeHtml(f.type)}</strong></div>
-      ${f.quoted_evidence ? `<blockquote class="quote">“${escapeHtml(f.quoted_evidence)}”</blockquote>` : ''}
-      <p>${escapeHtml(f.why_risky || '')}</p>
-      ${f.negotiation_tip ? `<p class="tip">💡 ${escapeHtml(f.negotiation_tip)}</p>` : ''}
-    </div>`
-      )
-      .join('') || '<p class="ok-note">No red flags found — the agreement follows standard tenant protections.</p>';
-
-  $('missing').innerHTML =
-    (r.missing_protections || []).map((x) => `<li>${escapeHtml(x)}</li>`).join('') || '<li>None — protections are present.</li>';
-  $('verify').innerHTML = (r.verification_steps || []).map((x) => `<li>${escapeHtml(x)}</li>`).join('');
-  $('summary').textContent = r.plain_summary || '';
-  $('confidence-row').innerHTML = `<div class="conf-bar"><div class="conf-fill" style="width:${(r.confidence * 100).toFixed(0)}%"></div></div><span class="muted">Gemma confidence: ${(r.confidence * 100).toFixed(0)}%</span>`;
-  $('report').scrollIntoView({ behavior: 'smooth' });
+function confCell(m) {
+  const c = typeof m.confidence === 'number' ? m.confidence : null;
+  if (c === null) return '<span class="muted">unknown</span>';
+  const color = c >= 0.9 ? 'var(--ok)' : c >= 0.7 ? 'var(--medium)' : 'var(--high)';
+  return `<div class="conf"><div class="bar"><span style="width:${(c * 100).toFixed(0)}%;background:${color}"></span></div><span>${(c * 100).toFixed(0)}%</span></div>
+    ${m.ambiguity ? `<div class="amb">competing: “${escapeHtml(m.ambiguity)}”</div>` : ''}`;
 }
 
-$('analyze').addEventListener('click', async () => {
-  const text = $('message').value.trim();
-  const file = $('screenshot').files[0];
-  if (!text && !file) {
-    alert('Paste the agreement text or attach a photo first.');
+function renderMeds(meds) {
+  if (!meds || !meds.length) {
+    $('meds').innerHTML = '<p class="empty">No medications were extracted — treat the read as failed and require a re-check.</p>';
     return;
   }
-  const body = { text: text || '(photo only — see screenshot)' };
-  if (file) {
-    lastImageDataUrl = await fileToDataUrl(file);
-    body.imageBase64 = lastImageDataUrl.split(',')[1];
-    body.imageMime = file.type;
-  }
-  if ($('example-select').value) body.exampleId = $('example-select').value;
+  const rows = meds
+    .map(
+      (m) => `<tr>
+        <td class="written">${escapeHtml(m.written_as || '—')}</td>
+        <td>${escapeHtml(m.interpreted_as || (m.drug ? `${m.drug} (drawing)` : '—'))}</td>
+        <td>${escapeHtml(m.strength || '—')}</td>
+        <td>${escapeHtml(m.frequency || '—')}</td>
+        <td>${escapeHtml(m.timing || '—')}</td>
+        <td>${m.duration_days != null ? escapeHtml(String(m.duration_days)) : '—'}</td>
+        <td>${confCell(m)}</td>
+      </tr>`
+    )
+    .join('');
+  $('meds').innerHTML = `
+    <table class="meds">
+      <thead><tr>
+        <th>Written on the slip</th><th>Interpreted read</th><th>Strength</th>
+        <th>Frequency</th><th>Timing</th><th>Days</th><th>Name confidence</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
 
-  const btn = $('analyze');
+function renderFlags(flags) {
+  if (!flags || !flags.length) {
+    $('flags').innerHTML =
+      '<p class="empty">No safety flags raised. Escalating when there is nothing to escalate would be crying wolf.</p>';
+    return;
+  }
+  $('flags').innerHTML = flags
+    .map(
+      (f) => `<div class="flag ${escapeHtml(f.severity)}">
+        <div class="fhead">
+          <span class="sev ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span>
+          <strong>${escapeHtml(f.type || f.message)}</strong>
+          ${f.source ? `<span class="src">${escapeHtml(f.source)}</span>` : ''}
+        </div>
+        <p class="fmsg">${escapeHtml(f.message || '')}</p>
+        ${f.why ? `<p class="fwhy">${escapeHtml(f.why)}</p>` : ''}
+        ${f.action ? `<p class="fact">→ ${escapeHtml(f.action)}</p>` : ''}
+      </div>`
+    )
+    .join('');
+}
+
+let lastResponse = null;
+
+function render(data) {
+  lastResponse = data;
+  const ws = data.worksheet || {};
+  const meds = ws.extracted_medications || (data.extraction && data.extraction.extracted_medications) || [];
+
+  $('emptyState').classList.add('hidden');
+  $('worksheet').classList.remove('hidden');
+
+  const r = READYNESS[ws.readiness] || READYNESS.incomplete_information;
+  $('readiness').className = `readiness ${r.cls}`;
+  $('readiness').textContent = r.label;
+  $('readSummary').textContent = ws.read_summary || '';
+
+  if (data.note) {
+    $('note').classList.remove('hidden');
+    $('note').textContent = data.note;
+  } else {
+    $('note').classList.add('hidden');
+  }
+
+  renderMeds(meds);
+  renderFlags(ws.safety_flags || data.extracted_flags || []);
+
+  $('checklist').innerHTML = (ws.verification_checklist || [])
+    .map((x) => `<li>${escapeHtml(x)}</li>`)
+    .join('');
+
+  const det = data.deterministic || [];
+  $('detChecks').innerHTML = det.length
+    ? det.map((d) => `<li><strong>[${escapeHtml(d.severity)}]</strong> ${escapeHtml(d.label)}</li>`).join('')
+    : '<li>None — the code layer found nothing to add to Gemma’s read.</li>';
+
+  $('disclaimer').textContent =
+    ws.disclaimer || 'Decision-support only. The pharmacist must verify and approve before dispensing.';
+
+  $('worksheet').scrollIntoView({ behavior: 'smooth' });
+}
+
+$('analyzeBtn').addEventListener('click', async () => {
+  const ctx = $('contextText').value.trim();
+  const body = { contextText: ctx, sampleId: state.sampleId };
+  if (state.image instanceof File) {
+    const dataUrl = await dataUrlOf(state.image);
+    body.imageBase64 = dataUrl.split(',')[1];
+    body.imageMime = state.image.type;
+  }
+  if (!state.sampleId && !state.image) {
+    $('status').textContent = 'Pick a synthetic sample or upload a prescription photo first.';
+    return;
+  }
+
+  const btn = $('analyzeBtn');
   btn.disabled = true;
-  btn.textContent = 'Analyzing…';
+  btn.textContent = 'Reading the slip…';
+  $('status').textContent = 'Gemma reads the image → our code checks the read → worksheet assembled.';
   try {
-    const res = await fetch('/api/analyze', {
+    const res = await fetch('/api/analyze-rx', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || 'Analysis failed.');
+      $('status').textContent = data.error || 'Analysis failed.';
       return;
     }
+    $('status').textContent = `Worksheet ready (${data.mode === 'live' ? 'live Gemma read' : 'cached worksheet'}).`;
     render(data);
   } catch (e) {
-    alert('Network error: ' + e.message);
+    $('status').textContent = 'Network error: ' + e.message;
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Run Forensic Analysis';
+    btn.textContent = 'Analyze prescription';
   }
 });
 
+$('exportBtn').addEventListener('click', () => {
+  if (!lastResponse) return;
+  const blob = new Blob([JSON.stringify(lastResponse, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `rxsafe-worksheet-${lastResponse.sampleId || 'upload'}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$('printBtn').addEventListener('click', () => window.print());
+
 loadMode();
-loadExamples();
+loadSamples();

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RxSafe Lens — synthetic prescription slip renderer</title>
+<style>
+  /* Printed letterhead font + handwriting font, with system fallbacks. */
+  :root {
+    --hand: "Segoe Script", "Bradley Hand", "Lucida Handwriting", "Comic Sans MS", cursive;
+    --print: "Segoe UI", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+  body {
+    background: #efece3;
+    font-family: var(--hand);
+    overflow: hidden;
+  }
+  .pad {
+    position: relative;
+    width: 100%; height: 100%;
+    background:
+      repeating-linear-gradient(to bottom, transparent 0 43px, #b9d2e0 43px 44px),
+      linear-gradient(#fdfcf5, #f8f5ea);
+    padding: 26px 34px 0 88px;
+    transform: rotate(-0.35deg);
+    box-shadow: 0 0 18px rgba(0,0,0,0.25) inset;
+  }
+  /* vermillion margin line, like an Indian OPD pad */
+  .pad::before {
+    content: "";
+    position: absolute; top: 0; bottom: 0; left: 64px; width: 2px;
+    background: #d5484a; opacity: 0.75;
+  }
+  .letterhead {
+    font-family: var(--print);
+    text-align: center;
+    color: #1d5c8f;
+    border-bottom: 2px solid #1d5c8f;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+  .letterhead .clinic { font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+  .letterhead .doc { font-size: 17px; margin-top: 2px; }
+  .letterhead .meta { font-size: 13px; color: #4a6a80; margin-top: 2px; }
+  .stamp {
+    position: absolute; right: 40px; top: 96px;
+    border: 3px solid rgba(63, 106, 160, 0.55);
+    color: rgba(63, 106, 160, 0.65);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--print);
+    font-size: 15px; font-weight: 800; letter-spacing: 2px;
+    transform: rotate(-6deg);
+  }
+  .rxline {
+    font-size: 30px; color: #2b2b2b;
+    margin: 4px 0 2px; line-height: 44px; white-space: pre-wrap;
+  }
+  .rx-sym { font-family: serif; font-size: 40px; font-weight: 700; }
+  .line { font-size: 27px; color: #22303c; line-height: 44px; }
+  .small { font-size: 22px; }
+  .tilt-a { transform: rotate(-0.8deg); }
+  .tilt-b { transform: rotate(0.5deg); margin-left: 8px; }
+  .tilt-c { transform: rotate(0.15deg); }
+  .ink { opacity: 0.92; }
+  .sigrow {
+    position: absolute; bottom: 30px; right: 60px;
+    text-align: center; color: #24384d;
+  }
+  .sig { font-size: 30px; transform: rotate(-3deg); }
+  .siglabel { font-family: var(--print); font-size: 12px; color: #6a7a88; letter-spacing: 1px; }
+  /* smudge overlay for the ambiguous slip: a light diagonal scribble over part of the drug name */
+  .smudged { position: relative; display: inline-block; }
+  .smudged svg {
+    position: absolute; left: -4%; top: -12%; width: 108%; height: 124%;
+    opacity: 0.55;
+  }
+</style>
+</head>
+<body>
+<div class="pad" id="pad"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id") || "rx1";
+
+  // Same lines as lib/rxsamples.js handwriting_lines. Nothing here is a real
+  // patient, a real prescription, or a real drug record.
+  const samples = {
+    rx1: {
+      clinic: "CITY CLINIC — OPD", doc: "Dr. A. Rao, MBBS, MD", regno: "Reg. No. KMI-40218",
+      patient: "Name: R. Kumar        Age: 34",
+      stamp: "OPD",
+      rx: ["Tab Metformin 500 mg", "1 - 0 - 1   after food", "30 days"],
+    },
+    rx2: {
+      // The drug name is deliberately smudged: Gemma live-reads this at low
+      // confidence with Metformin as the competing look-alike candidate.
+      clinic: "CITY CLINIC — OPD", doc: "Dr. S. Iyer, MBBS", regno: "Reg. No. KMI-51031",
+      patient: "Name: P. Nair        Age: 29",
+      stamp: "OPD",
+      smudgeWord: "Metoprolol",
+      smudgeFrom: 3, smudgeTo: 7,
+      rx: ["Tab Metoprolol 50 mg", "1 - 0 - 1   after food", "30 days"],
+    },
+    rx3: {
+      clinic: "CITY CLINIC — OPD", doc: "Dr. M. Nair, MBBS", regno: "Reg. No. KMI-33062",
+      patient: "Name: S. Gupta        Age: 47",
+      stamp: "OPD",
+      rx: ["Tab Sulfamethoxazole 400 mg", "1 - 0 - 1   after food", "7 days"],
+    }
+  };
+
+  const s = samples[id];
+  if (!s) { document.body.textContent = "unknown sample id"; }
+  else {
+    const tilts = ["tilt-a", "tilt-c", "tilt-b", "tilt-c", "tilt-a"];
+    const nameHtml = s.smudgeWord
+      ? s.smudgeWord.slice(0, s.smudgeFrom)
+        + `<span class="smudged">${s.smudgeWord.slice(s.smudgeFrom, s.smudgeTo)}<svg viewBox="0 0 100 30" preserveAspectRatio="none"><path d="M2 18 Q 20 4 38 16 T 70 14 T 98 12" stroke="#24384d" stroke-width="5" fill="none" opacity="0.5"/><path d="M4 10 Q 30 22 58 8 T 96 18" stroke="#24384d" stroke-width="3.5" fill="none" opacity="0.45"/></svg></span>`
+        + s.smudgeWord.slice(s.smudgeTo)
+      : null;
+
+    const rxLines = s.rx
+      .map((line, i) => {
+        let text = line;
+        if (nameHtml && line.includes(s.smudgeWord)) text = line.replace(s.smudgeWord, nameHtml);
+        return `<div class="line ${tilts[i % tilts.length]} ink">${text}</div>`;
+      })
+      .join("\n");
+
+    document.getElementById("pad").innerHTML = `
+      <div class="letterhead">
+        <div class="clinic">${s.clinic}</div>
+        <div class="doc">${s.doc}</div>
+        <div class="meta">${s.regno} &middot; Ph: 080-0000-0000 (synthetic slip)</div>
+      </div>
+      <div class="stamp">${s.stamp}</div>
+      <div class="line small tilt-c">Date: 18/10/2026</div>
+      <div class="line tilt-b">${s.patient}</div>
+      <div class="rxline"><span class="rx-sym">&#8478;</span> <span class="tilt-c">Rx:</span></div>
+      ${rxLines}
+      <div class="sigrow">
+        <div class="sig">${s.doc.split(",")[0]}</div>
+        <div class="siglabel">SIGNATURE &middot; SYNTHETIC SAMPLE</div>
+      </div>
+    `;
+  }
+</script>
+</body>
+</html>
