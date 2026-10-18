@@ -1,0 +1,23 @@
+{
+  "name": "clauselens",
+  "version": "1.0.0",
+  "description": "ClauseLens - rental agreement forensics. Every clause explained. Every red flag, proven with the agreement's own words.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "rental-agreement",
+    "forensics",
+    "gemma",
+    "multimodal",
+    "tenant-rights"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

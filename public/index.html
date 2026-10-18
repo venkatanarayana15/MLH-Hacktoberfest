@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClauseLens — Rental Agreement Forensics</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">🔍</span>
+    <div>
+      <h1>ClauseLens</h1>
+      <p class="tagline">Every clause explained. Every red flag, proven with the agreement's own words.</p>
+    </div>
+  </div>
+  <div class="badges">
+    <span class="badge">Track 1 · G3 Multimodal</span>
+    <span class="badge" id="mode-badge">checking…</span>
+  </div>
+</header>
+
+<main>
+  <section class="card input-card">
+    <h2>Analyze an agreement</h2>
+    <textarea id="message" rows="10" placeholder="Paste the rental agreement text here — or attach a photo of it below…"></textarea>
+    <div class="input-row">
+      <label class="file-label">📷 <input type="file" id="screenshot" accept="image/*" hidden /><span id="file-name">Attach agreement photo (optional)</span></label>
+      <select id="example-select">
+        <option value="">— or try a prepared agreement —</option>
+      </select>
+      <button id="analyze" class="primary">Run Forensic Analysis</button>
+    </div>
+    <p class="hint">Gemma reads the photo AND the text together — reasoning across multiple input formats (G3).</p>
+  </section>
+
+  <section id="inputs-panel" class="card hidden">
+    <h2>Model Inputs <span class="muted">— what Gemma saw (G3 proof)</span></h2>
+    <div class="inputs-grid">
+      <div class="input-box"><h3>Agreement text</h3><pre id="input-text"></pre></div>
+      <div class="input-box hidden" id="image-box"><h3>Screenshot</h3><img id="input-image" alt="agreement screenshot" /></div>
+      <div class="input-box"><h3>Rules engine findings</h3><ul id="input-rules"></ul></div>
+    </div>
+  </section>
+
+  <section id="report" class="card hidden">
+    <div id="verdict-banner"></div>
+    <div id="flags"></div>
+    <div class="report-grid">
+      <div><h3>⚠️ What a tenant-friendly agreement includes that this one lacks</h3><ul id="missing"></ul></div>
+      <div><h3>🧾 How to verify &amp; protect yourself</h3><ul id="verify"></ul></div>
+    </div>
+    <div class="summary-box"><h3>In plain language</h3><p id="summary"></p></div>
+    <div id="confidence-row"></div>
+    <p class="disclaimer">⚠️ Risk signals, not legal advice. The AI explains; the agreement's own words prove; you decide. Verify e-stamp validity (Kaveri Online), ownership documents, and approach the Rent Authority for disputes.</p>
+  </section>
+</main>
+
+<footer>ClauseLens · MIT · Gemma 4 via Gemini API · Hacktoberfest Hack Day Bengaluru 2026 · Track 1 / G3</footer>
+<script src="app.js"></script>
+</body>
+</html>
